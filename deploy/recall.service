@@ -1,0 +1,28 @@
+[Unit]
+Description=Recall in-memory cache server
+After=network.target
+
+[Service]
+Type=simple
+User=recall
+Group=recall
+WorkingDirectory=/opt/recall
+ExecStart=/opt/recall/bin/recall-server --env-file /etc/recall/recall.env
+Restart=on-failure
+RestartSec=3s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+LimitCORE=0
+LimitNOFILE=8192
+TasksMax=128
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+# Allow only build inputs, then exclude secrets even inside allowed directories.
+**
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!.cargo/
+!.cargo/config.toml
+!crates/
+!crates/**
+!Dockerfile
+**/.env
+**/.env.*
+**/*.env
+**/*.pem
+**/*.key
+**/target/
+**/__pycache__/
+.git/

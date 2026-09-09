@@ -1,0 +1,10 @@
+/target/
+/artifacts/
+.env
+.env.*
+!.env.example
+*.env
+__pycache__/
+*.py[cod]
+*.profraw
+

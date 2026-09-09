@@ -1,0 +1,48 @@
+name: Rust correctness gates
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Python static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Checker regression tests
+        run: python -B -m unittest discover -s tools -p test_static_check.py -v
+      - name: Read-only repository checks
+        run: python -B tools/static_check.py
+
+  check:
+    name: Linux Tier 1 Rust checks
+    needs: static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
+      - name: Prepare dependency lock when absent
+        shell: bash
+        run: |
+          if [ ! -f Cargo.lock ]; then
+            cargo generate-lockfile
+          fi
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Static diagnostics
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Unit and integration tests
+        run: cargo test --workspace --locked
+      - name: Release build
+        run: cargo build --workspace --release --locked
+
+

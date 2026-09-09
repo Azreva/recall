@@ -1,0 +1,27 @@
+# Native Linux only: preserve the server's loopback-only listener.
+# No published ports, public bind, host filesystem access, or Docker socket mount.
+services:
+  recall:
+    image: recall:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    restart: "no"
+    stop_grace_period: 30s
+    command: ["--env-file", "/etc/recall/recall.env"]
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /etc/recall/recall.env
+        read_only: true
+        bind:
+          create_host_path: false
