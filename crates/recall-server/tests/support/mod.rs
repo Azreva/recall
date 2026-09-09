@@ -26,8 +26,14 @@ impl TestServer {
         let server = Server::bind(config).await.unwrap();
         let address = server.local_addr().unwrap();
         let (stop, receiver) = oneshot::channel();
-        let task = tokio::spawn(server.run(async move { let _ = receiver.await; }));
-        Self { address, stop, task }
+        let task = tokio::spawn(server.run(async move {
+            let _ = receiver.await;
+        }));
+        Self {
+            address,
+            stop,
+            task,
+        }
     }
 
     pub async fn connect(&self) -> TcpStream {
@@ -36,7 +42,11 @@ impl TestServer {
 
     pub async fn stop(self) {
         let _ = self.stop.send(());
-        timeout(Duration::from_secs(10), self.task).await.unwrap().unwrap().unwrap();
+        timeout(Duration::from_secs(10), self.task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 }
 
@@ -65,44 +75,67 @@ pub async fn command(stream: &mut TcpStream, arguments: &[&[u8]]) -> Reply {
 }
 
 pub async fn response(stream: &mut TcpStream) -> Reply {
-    timeout(Duration::from_secs(5), read_reply(stream)).await.unwrap().unwrap()
+    timeout(Duration::from_secs(5), read_reply(stream))
+        .await
+        .unwrap()
+        .unwrap()
 }
 
-fn read_reply(stream: &mut TcpStream) -> Pin<Box<dyn Future<Output = io::Result<Reply>> + Send + '_>> {
+fn read_reply(
+    stream: &mut TcpStream,
+) -> Pin<Box<dyn Future<Output = io::Result<Reply>> + Send + '_>> {
     Box::pin(async move {
         let prefix = stream.read_u8().await?;
         let mut line = Vec::new();
         loop {
             let byte = stream.read_u8().await?;
             if byte == b'\r' {
-                if stream.read_u8().await? != b'\n' { return Err(invalid("invalid reply CRLF")); }
+                if stream.read_u8().await? != b'\n' {
+                    return Err(invalid("invalid reply CRLF"));
+                }
                 break;
             }
-            if line.len() >= 4096 { return Err(invalid("reply header too long")); }
+            if line.len() >= 4096 {
+                return Err(invalid("reply header too long"));
+            }
             line.push(byte);
         }
-        let number = || std::str::from_utf8(&line).ok().and_then(|value| value.parse::<i64>().ok())
-            .ok_or_else(|| invalid("invalid numeric reply header"));
+        let number = || {
+            std::str::from_utf8(&line)
+                .ok()
+                .and_then(|value| value.parse::<i64>().ok())
+                .ok_or_else(|| invalid("invalid numeric reply header"))
+        };
         match prefix {
             b'+' => Ok(Reply::Simple(Bytes::from(line))),
             b'-' => Ok(Reply::Error(Bytes::from(line))),
             b':' => Ok(Reply::Integer(number()?)),
             b'$' => {
                 let length = number()?;
-                if length == -1 { return Ok(Reply::Bulk(None)); }
-                if !(0..=64 * 1024 * 1024).contains(&length) { return Err(invalid("invalid bulk reply length")); }
+                if length == -1 {
+                    return Ok(Reply::Bulk(None));
+                }
+                if !(0..=64 * 1024 * 1024).contains(&length) {
+                    return Err(invalid("invalid bulk reply length"));
+                }
                 let mut payload = vec![0; length as usize];
                 stream.read_exact(&mut payload).await?;
                 let mut ending = [0; 2];
                 stream.read_exact(&mut ending).await?;
-                if ending != *b"\r\n" { return Err(invalid("invalid bulk reply ending")); }
+                if ending != *b"\r\n" {
+                    return Err(invalid("invalid bulk reply ending"));
+                }
                 Ok(Reply::bulk(Bytes::from(payload)))
             }
             b'*' => {
                 let count = number()?;
-                if !(0..=4096).contains(&count) { return Err(invalid("invalid array reply length")); }
+                if !(0..=4096).contains(&count) {
+                    return Err(invalid("invalid array reply length"));
+                }
                 let mut values = Vec::with_capacity(count as usize);
-                for _ in 0..count { values.push(read_reply(stream).await?); }
+                for _ in 0..count {
+                    values.push(read_reply(stream).await?);
+                }
                 Ok(Reply::Array(values))
             }
             _ => Err(invalid("unknown reply prefix")),
@@ -113,4 +146,3 @@ fn read_reply(stream: &mut TcpStream) -> Pin<Box<dyn Future<Output = io::Result<
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
-

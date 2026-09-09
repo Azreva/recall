@@ -82,7 +82,9 @@ impl ExpiryIndex {
                 break;
             }
             let right = left + 1;
-            let child = if right < self.heap.len() && self.heap[right].deadline < self.heap[left].deadline {
+            let child = if right < self.heap.len()
+                && self.heap[right].deadline < self.heap[left].deadline
+            {
                 right
             } else {
                 left
@@ -137,4 +139,3 @@ mod tests {
         assert_eq!(timers.len(), 0);
     }
 }
-

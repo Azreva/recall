@@ -48,12 +48,18 @@ pub fn load(arguments: &[String]) -> Result<Config, String> {
     let file = match options.env_file {
         Some(path) => match File::open(&path) {
             Ok(file) => {
-                if !file.metadata().map_err(|_| "cannot inspect environment file")?.is_file() {
+                if !file
+                    .metadata()
+                    .map_err(|_| "cannot inspect environment file")?
+                    .is_file()
+                {
                     return Err("environment path must be a regular file".to_owned());
                 }
                 read_values(file)?
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound && !options.explicit_file => Values::new(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !options.explicit_file => {
+                Values::new()
+            }
             Err(error) => return Err(format!("cannot read environment file: {}", error.kind())),
         },
         None => Values::new(),
@@ -101,8 +107,14 @@ fn parse_options(arguments: &[String]) -> Result<Options, String> {
             "--queue-bytes-mib" => "RECALL_QUEUE_BYTES_MIB",
             _ => return Err("unknown option; use --help".to_owned()),
         };
-        let value = arguments.next().ok_or_else(|| format!("missing value for {option}"))?;
-        if options.values.insert(name.to_owned(), value.to_owned()).is_some() {
+        let value = arguments
+            .next()
+            .ok_or_else(|| format!("missing value for {option}"))?;
+        if options
+            .values
+            .insert(name.to_owned(), value.to_owned())
+            .is_some()
+        {
             return Err(format!("duplicate option {option}"));
         }
     }
@@ -111,12 +123,15 @@ fn parse_options(arguments: &[String]) -> Result<Options, String> {
 
 fn read_values(reader: impl Read) -> Result<Values, String> {
     let mut input = Vec::new();
-    reader.take((MAX_ENV_BYTES + 1) as u64).read_to_end(&mut input)
+    reader
+        .take((MAX_ENV_BYTES + 1) as u64)
+        .read_to_end(&mut input)
         .map_err(|_| "cannot read environment file".to_owned())?;
     if input.len() > MAX_ENV_BYTES {
         return Err("environment file exceeds 16 KiB".to_owned());
     }
-    let text = std::str::from_utf8(&input).map_err(|_| "environment file must be UTF-8".to_owned())?;
+    let text =
+        std::str::from_utf8(&input).map_err(|_| "environment file must be UTF-8".to_owned())?;
     parse_values(text)
 }
 
@@ -145,7 +160,10 @@ fn parse_values(text: &str) -> Result<Values, String> {
             raw_value
         };
         if values.insert(key.to_owned(), value.to_owned()).is_some() {
-            return Err(format!("duplicate environment assignment at line {}", index + 1));
+            return Err(format!(
+                "duplicate environment assignment at line {}",
+                index + 1
+            ));
         }
     }
     Ok(values)
@@ -166,7 +184,11 @@ fn from_sources(mut file: Values, process: Values, arguments: Values) -> Result<
     let mut config = Config::default();
     for (key, value) in file {
         match key.as_str() {
-            "RECALL_BIND" => config.bind = value.parse().map_err(|_| "RECALL_BIND requires an IP:port")?,
+            "RECALL_BIND" => {
+                config.bind = value
+                    .parse()
+                    .map_err(|_| "RECALL_BIND requires an IP:port")?
+            }
             "RECALL_WORKERS" => config.workers = number(&key, &value)?,
             "RECALL_IO_THREADS" => config.io_threads = number(&key, &value)?,
             "RECALL_MAX_MEMORY_MIB" => config.max_payload_bytes = mib(&key, &value)?,
@@ -189,7 +211,9 @@ fn number(key: &str, value: &str) -> Result<usize, String> {
 }
 
 fn mib(key: &str, value: &str) -> Result<usize, String> {
-    number(key, value)?.checked_mul(1024 * 1024).ok_or_else(|| format!("{key} is out of range"))
+    number(key, value)?
+        .checked_mul(1024 * 1024)
+        .ok_or_else(|| format!("{key} is out of range"))
 }
 
 #[cfg(test)]
@@ -198,7 +222,8 @@ mod tests {
 
     #[test]
     fn precedence_is_arguments_then_environment_then_file_then_defaults() {
-        let file = parse_values("RECALL_WORKERS=1\nRECALL_IO_THREADS=1\nRECALL_MAX_CONNECTIONS=10").unwrap();
+        let file = parse_values("RECALL_WORKERS=1\nRECALL_IO_THREADS=1\nRECALL_MAX_CONNECTIONS=10")
+            .unwrap();
         let process = parse_values("RECALL_WORKERS=2\nRECALL_IO_THREADS=2").unwrap();
         let arguments = parse_values("RECALL_WORKERS=3").unwrap();
         let config = from_sources(file, process, arguments).unwrap();
@@ -210,7 +235,10 @@ mod tests {
 
     #[test]
     fn parsing_is_literal_and_supports_utf8_bom_crlf_and_quotes() {
-        let values = parse_values("\u{feff}# comment\r\nRECALL_PASSWORD='a $HOME # literal'\r\nRECALL_WORKERS=2\r\n").unwrap();
+        let values = parse_values(
+            "\u{feff}# comment\r\nRECALL_PASSWORD='a $HOME # literal'\r\nRECALL_WORKERS=2\r\n",
+        )
+        .unwrap();
         assert_eq!(values["RECALL_PASSWORD"], "a $HOME # literal");
         assert_eq!(values["RECALL_WORKERS"], "2");
     }
@@ -233,19 +261,36 @@ mod tests {
 
     #[test]
     fn loader_preserves_security_and_password_validation() {
-        for input in ["RECALL_BIND=0.0.0.0:6379", "RECALL_PASSWORD=", "RECALL_WORKERS=0", "RECALL_MAX_MEMORY_MIB=999999999999999999999999999"] {
-            assert!(from_sources(parse_values(input).unwrap(), Values::new(), Values::new()).is_err());
+        for input in [
+            "RECALL_BIND=0.0.0.0:6379",
+            "RECALL_PASSWORD=",
+            "RECALL_WORKERS=0",
+            "RECALL_MAX_MEMORY_MIB=999999999999999999999999999",
+        ] {
+            assert!(
+                from_sources(parse_values(input).unwrap(), Values::new(), Values::new()).is_err()
+            );
         }
     }
 
     #[test]
     fn environment_file_selection_is_explicit() {
-        let options = parse_options(&["--no-env-file".to_owned(), "--workers".to_owned(), "2".to_owned()]).unwrap();
+        let options = parse_options(&[
+            "--no-env-file".to_owned(),
+            "--workers".to_owned(),
+            "2".to_owned(),
+        ])
+        .unwrap();
         assert!(options.env_file.is_none());
         assert_eq!(options.values["RECALL_WORKERS"], "2");
         let options = parse_options(&["--env-file".to_owned(), "local.env".to_owned()]).unwrap();
         assert!(options.explicit_file);
-        assert!(parse_options(&["--no-env-file".to_owned(), "--env-file".to_owned(), "local.env".to_owned()]).is_err());
+        assert!(parse_options(&[
+            "--no-env-file".to_owned(),
+            "--env-file".to_owned(),
+            "local.env".to_owned()
+        ])
+        .is_err());
         assert!(parse_options(&["--env-file".to_owned()]).is_err());
     }
 }

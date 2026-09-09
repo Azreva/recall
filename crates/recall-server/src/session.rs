@@ -44,7 +44,11 @@ impl Session {
                 };
                 return (reply, false);
             }
-            Command::Hello { protocol, auth, name } => {
+            Command::Hello {
+                protocol,
+                auth,
+                name,
+            } => {
                 if protocol.is_some_and(|version| version != 2) {
                     return (Reply::error("NOPROTO unsupported protocol version"), false);
                 }
@@ -80,7 +84,10 @@ impl Session {
                 self.name = nonempty(name);
                 Reply::ok()
             }
-            Command::Client(ClientCommand::SetInfo { library_name, value }) => {
+            Command::Client(ClientCommand::SetInfo {
+                library_name,
+                value,
+            }) => {
                 if library_name {
                     self.library_name = nonempty(value);
                 } else {
@@ -90,45 +97,66 @@ impl Session {
             }
             Command::Metadata(command) => metadata(command),
             Command::Info(section) => info(section.as_deref(), engine, metrics).await,
-            Command::Auth { .. } | Command::Hello { .. } => unreachable!("handled before authentication gate"),
+            Command::Auth { .. } | Command::Hello { .. } => {
+                unreachable!("handled before authentication gate")
+            }
         };
         (reply, false)
     }
 
     fn hello_reply(&self) -> Reply {
         Reply::Array(vec![
-            Reply::bulk("server"), Reply::bulk("recall"),
-            Reply::bulk("version"), Reply::bulk(env!("CARGO_PKG_VERSION")),
-            Reply::bulk("proto"), Reply::Integer(2),
-            Reply::bulk("id"), Reply::Integer(self.id as i64),
-            Reply::bulk("mode"), Reply::bulk("standalone"),
-            Reply::bulk("role"), Reply::bulk("master"),
-            Reply::bulk("modules"), Reply::Array(vec![]),
+            Reply::bulk("server"),
+            Reply::bulk("recall"),
+            Reply::bulk("version"),
+            Reply::bulk(env!("CARGO_PKG_VERSION")),
+            Reply::bulk("proto"),
+            Reply::Integer(2),
+            Reply::bulk("id"),
+            Reply::Integer(self.id as i64),
+            Reply::bulk("mode"),
+            Reply::bulk("standalone"),
+            Reply::bulk("role"),
+            Reply::bulk("master"),
+            Reply::bulk("modules"),
+            Reply::Array(vec![]),
         ])
     }
 }
 
 fn nonempty(value: Bytes) -> Option<Bytes> {
-    if value.is_empty() { None } else { Some(value) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 fn authenticate(config: &Config, username: Option<&[u8]>, supplied: &[u8]) -> Result<(), Reply> {
     let Some(expected) = &config.password else {
-        return Err(Reply::error("ERR AUTH called without any password configured for the default user."));
+        return Err(Reply::error(
+            "ERR AUTH called without any password configured for the default user.",
+        ));
     };
     let password_matches = bool::from(expected.as_ref().ct_eq(supplied));
     let user_matches = username.is_none_or(|name| name == b"default");
     if password_matches && user_matches {
         Ok(())
     } else {
-        Err(Reply::error("WRONGPASS invalid username-password pair or user is disabled."))
+        Err(Reply::error(
+            "WRONGPASS invalid username-password pair or user is disabled.",
+        ))
     }
 }
 
 async fn info(section: Option<&[u8]>, engine: &EngineHandle, metrics: &Metrics) -> Reply {
-    let include = |name: &[u8]| section.is_none_or(|value| {
-        value.eq_ignore_ascii_case(b"all") || value.eq_ignore_ascii_case(b"default") || value.eq_ignore_ascii_case(name)
-    });
+    let include = |name: &[u8]| {
+        section.is_none_or(|value| {
+            value.eq_ignore_ascii_case(b"all")
+                || value.eq_ignore_ascii_case(b"default")
+                || value.eq_ignore_ascii_case(name)
+        })
+    };
     let mut output = String::new();
     if include(b"server") {
         output.push_str(&format!(
@@ -137,7 +165,10 @@ async fn info(section: Option<&[u8]>, engine: &EngineHandle, metrics: &Metrics) 
         ));
     }
     if include(b"clients") {
-        output.push_str(&format!("# Clients\r\nconnected_clients:{}\r\n", metrics.active_connections.load(Ordering::Relaxed)));
+        output.push_str(&format!(
+            "# Clients\r\nconnected_clients:{}\r\n",
+            metrics.active_connections.load(Ordering::Relaxed)
+        ));
     }
     if include(b"stats") {
         output.push_str(&format!(
@@ -167,4 +198,3 @@ async fn info(section: Option<&[u8]>, engine: &EngineHandle, metrics: &Metrics) 
     }
     Reply::bulk(output)
 }
-

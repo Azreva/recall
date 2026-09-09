@@ -170,12 +170,7 @@ impl Decoder {
         Ok(None)
     }
 
-    fn length_header(
-        &self,
-        input: &[u8],
-        end: usize,
-        prefix: u8,
-    ) -> Result<usize, ProtocolError> {
+    fn length_header(&self, input: &[u8], end: usize, prefix: u8) -> Result<usize, ProtocolError> {
         if end <= self.cursor + 1 || input[self.cursor] != prefix {
             return Err(ProtocolError("expected a nonnegative RESP2 length"));
         }
@@ -223,8 +218,9 @@ impl Reply {
     pub fn encoded_len(&self) -> Option<usize> {
         match self {
             Self::Simple(value) | Self::Error(value) => value.len().checked_add(3),
-            Self::Integer(value) => decimal_digits(value.unsigned_abs())
-                .checked_add(3 + usize::from(*value < 0)),
+            Self::Integer(value) => {
+                decimal_digits(value.unsigned_abs()).checked_add(3 + usize::from(*value < 0))
+            }
             Self::Bulk(None) => Some(5),
             Self::Bulk(Some(value)) => decimal_digits(value.len() as u64)
                 .checked_add(5)
@@ -380,4 +376,3 @@ mod tests {
         }
     }
 }
-

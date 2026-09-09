@@ -55,7 +55,9 @@ impl Default for Config {
 impl Config {
     pub fn validate(&self) -> io::Result<()> {
         if !self.bind.ip().is_loopback() {
-            return Err(invalid("this milestone permits loopback binds only; transport security is not implemented"));
+            return Err(invalid(
+                "this milestone permits loopback binds only; transport security is not implemented",
+            ));
         }
         if !(1..=64).contains(&self.workers)
             || !(1..=64).contains(&self.io_threads)
@@ -67,7 +69,9 @@ impl Config {
             || self.keys_per_worker > 1_048_576
             || self.max_payload_bytes < self.workers
         {
-            return Err(invalid("invalid worker, connection, queue, key, or payload limit"));
+            return Err(invalid(
+                "invalid worker, connection, queue, key, or payload limit",
+            ));
         }
         if self.admission_timeout.is_zero()
             || self.read_timeout.is_zero()
@@ -77,7 +81,9 @@ impl Config {
         {
             return Err(invalid("timeouts and expiration budgets must be nonzero"));
         }
-        self.protocol.validate().map_err(|error| invalid(&error.to_string()))?;
+        self.protocol
+            .validate()
+            .map_err(|error| invalid(&error.to_string()))?;
         if self.protocol.max_frame_bytes > 16 * 1024 * 1024
             || self.protocol.max_arguments > 4096
             || self.commands.max_key_bytes > self.protocol.max_bulk_bytes
@@ -86,10 +92,18 @@ impl Config {
             || self.max_reply_bytes < self.commands.max_value_bytes.saturating_add(64)
             || self.max_reply_bytes > 64 * 1024 * 1024
         {
-            return Err(invalid("inconsistent or excessive protocol/command/reply limits"));
+            return Err(invalid(
+                "inconsistent or excessive protocol/command/reply limits",
+            ));
         }
-        if self.password.as_ref().is_some_and(|password| password.is_empty() || password.len() > 1024) {
-            return Err(invalid("the configured password must contain 1 to 1024 bytes"));
+        if self
+            .password
+            .as_ref()
+            .is_some_and(|password| password.is_empty() || password.len() > 1024)
+        {
+            return Err(invalid(
+                "the configured password must contain 1 to 1024 bytes",
+            ));
         }
         Ok(())
     }
@@ -103,7 +117,6 @@ impl Config {
         }
     }
 }
-
 pub(crate) fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
@@ -124,8 +137,16 @@ mod tests {
 
     #[test]
     fn apportions_payload_budget_without_losing_remainder() {
-        let config = Config { workers: 3, max_payload_bytes: 100, ..Config::default() };
-        assert_eq!((0..3).map(|owner| config.shard_limits(owner).max_payload_bytes).sum::<usize>(), 100);
+        let config = Config {
+            workers: 3,
+            max_payload_bytes: 100,
+            ..Config::default()
+        };
+        assert_eq!(
+            (0..3)
+                .map(|owner| config.shard_limits(owner).max_payload_bytes)
+                .sum::<usize>(),
+            100
+        );
     }
 }
-

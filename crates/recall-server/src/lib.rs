@@ -44,7 +44,12 @@ impl Server {
         config.validate()?;
         let listener = TcpListener::bind(config.bind).await?;
         let engine = Engine::start(&config)?;
-        Ok(Self { listener, config: Arc::new(config), engine, metrics: Arc::new(Metrics::default()) })
+        Ok(Self {
+            listener,
+            config: Arc::new(config),
+            engine,
+            metrics: Arc::new(Metrics::default()),
+        })
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -54,7 +59,12 @@ impl Server {
     /// Shutdown interrupts socket reads, not admitted mutations. Existing
     /// operations finish and replies get their bounded write window before join.
     pub async fn run(self, shutdown: impl Future<Output = ()> + Send) -> io::Result<()> {
-        let Self { listener, config, engine, metrics } = self;
+        let Self {
+            listener,
+            config,
+            engine,
+            metrics,
+        } = self;
         let permits = Arc::new(Semaphore::new(config.max_connections));
         let mut connections = JoinSet::new();
         let (stopping, shutdown_rx) = watch::channel(false);
@@ -91,7 +101,9 @@ impl Server {
         drop(listener);
         let _ = stopping.send(true);
         while let Some(completed) = connections.join_next().await {
-            if completed.is_err() { engine::fatal("a connection task failed during shutdown"); }
+            if completed.is_err() {
+                engine::fatal("a connection task failed during shutdown");
+            }
         }
         engine.shutdown().await?;
         outcome
@@ -106,13 +118,18 @@ struct ConnectionGuard {
 impl ConnectionGuard {
     fn new(metrics: Arc<Metrics>, permit: OwnedSemaphorePermit) -> Self {
         metrics.active_connections.fetch_add(1, Ordering::Relaxed);
-        Self { metrics, _permit: permit }
+        Self {
+            metrics,
+            _permit: permit,
+        }
     }
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.metrics.active_connections.fetch_sub(1, Ordering::Relaxed);
+        self.metrics
+            .active_connections
+            .fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -130,8 +147,18 @@ async fn connection(
     let mut input = BytesMut::with_capacity(8192.min(config.protocol.max_frame_bytes));
     let mut session = Session::new(id, &config);
     loop {
-        if *shutdown.borrow() { return Ok(()); }
-        let request = match next_request(&mut stream, &mut decoder, &mut input, &config, &mut shutdown).await {
+        if *shutdown.borrow() {
+            return Ok(());
+        }
+        let request = match next_request(
+            &mut stream,
+            &mut decoder,
+            &mut input,
+            &config,
+            &mut shutdown,
+        )
+        .await
+        {
             Ok(Some(request)) => request,
             Ok(None) => return Ok(()),
             Err(ReadFailure::Protocol(message)) => {
@@ -155,7 +182,9 @@ async fn connection(
             Err(error) => (error.reply(), false),
         };
         write_reply(&mut stream, reply, &config, &metrics).await?;
-        if close { return Ok(()); }
+        if close {
+            return Ok(());
+        }
     }
 }
 
@@ -176,11 +205,20 @@ async fn next_request(
     let deadline = Instant::now() + config.read_timeout;
     let mut chunk = [0_u8; 8192];
     loop {
-        if let Some(request) = decoder.decode(input).map_err(|error| ReadFailure::Protocol(error.0))? {
+        if let Some(request) = decoder
+            .decode(input)
+            .map_err(|error| ReadFailure::Protocol(error.0))?
+        {
             return Ok(Some(request));
         }
-        let remaining = config.protocol.max_frame_bytes.saturating_sub(input.len()).min(chunk.len());
-        if remaining == 0 { return Err(ReadFailure::Protocol("request exceeds configured limit")); }
+        let remaining = config
+            .protocol
+            .max_frame_bytes
+            .saturating_sub(input.len())
+            .min(chunk.len());
+        if remaining == 0 {
+            return Err(ReadFailure::Protocol("request exceeds configured limit"));
+        }
         let received = tokio::select! {
             biased;
             _ = shutdown.changed() => return Ok(None),
@@ -190,26 +228,41 @@ async fn next_request(
             }
         };
         if received == 0 {
-            return if input.is_empty() { Ok(None) } else { Err(ReadFailure::Protocol("truncated request")) };
+            return if input.is_empty() {
+                Ok(None)
+            } else {
+                Err(ReadFailure::Protocol("truncated request"))
+            };
         }
         input.extend_from_slice(&chunk[..received]);
     }
 }
-
-async fn write_reply(stream: &mut TcpStream, mut reply: Reply, config: &Config, metrics: &Metrics) -> io::Result<()> {
-    if reply.encoded_len().is_none_or(|length| length > config.max_reply_bytes) {
+async fn write_reply(
+    stream: &mut TcpStream,
+    mut reply: Reply,
+    config: &Config,
+    metrics: &Metrics,
+) -> io::Result<()> {
+    if reply
+        .encoded_len()
+        .is_none_or(|length| length > config.max_reply_bytes)
+    {
         reply = Reply::error("ERR response exceeds configured limit");
     }
     let mut output = Vec::new();
-    output.try_reserve_exact(reply.encoded_len().expect("bounded response length")).map_err(io::Error::other)?;
+    output
+        .try_reserve_exact(reply.encoded_len().expect("bounded response length"))
+        .map_err(io::Error::other)?;
     reply.encode(&mut output);
     drop(reply);
     match timeout(config.write_timeout, stream.write_all(&output)).await {
         Ok(result) => result,
         Err(_) => {
             metrics.io_timeouts.fetch_add(1, Ordering::Relaxed);
-            Err(io::Error::new(io::ErrorKind::TimedOut, "response write deadline exceeded"))
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "response write deadline exceeded",
+            ))
         }
     }
 }
-

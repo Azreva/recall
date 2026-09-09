@@ -28,24 +28,38 @@ fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.len() == 1 {
         match arguments[0].as_str() {
-            "--help" | "-h" => { println!("{USAGE}"); return ExitCode::SUCCESS; }
-            "--version" | "-V" => { println!("Recall {}", env!("CARGO_PKG_VERSION")); return ExitCode::SUCCESS; }
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return ExitCode::SUCCESS;
+            }
+            "--version" | "-V" => {
+                println!("Recall {}", env!("CARGO_PKG_VERSION"));
+                return ExitCode::SUCCESS;
+            }
             _ => {}
         }
     }
     let config = match settings::load(&arguments) {
         Ok(config) => config,
-        Err(message) => { eprintln!("Recall configuration error: {message}"); return ExitCode::FAILURE; }
+        Err(message) => {
+            eprintln!("Recall configuration error: {message}");
+            return ExitCode::FAILURE;
+        }
     };
     if let Err(error) = config.validate() {
         eprintln!("Recall configuration error: {error}");
         return ExitCode::FAILURE;
     }
     let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(config.io_threads).enable_all().build()
+        .worker_threads(config.io_threads)
+        .enable_all()
+        .build()
     {
         Ok(runtime) => runtime,
-        Err(error) => { eprintln!("Recall runtime startup failed: {error}"); return ExitCode::FAILURE; }
+        Err(error) => {
+            eprintln!("Recall runtime startup failed: {error}");
+            return ExitCode::FAILURE;
+        }
     };
     let result = runtime.block_on(async move {
         let workers = config.workers;
@@ -56,7 +70,10 @@ fn main() -> ExitCode {
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => { eprintln!("Recall server stopped with an error: {error}"); ExitCode::FAILURE }
+        Err(error) => {
+            eprintln!("Recall server stopped with an error: {error}");
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -80,4 +97,3 @@ async fn shutdown_signal() {
         }
     }
 }
-

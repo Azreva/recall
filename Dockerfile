@@ -22,17 +22,8 @@ COPY .cargo/ .cargo/
 COPY crates/ crates/
 RUN cargo build --locked --release -p recall-server
 
-# Applies canonical rustfmt layout without running the check; export with:
-#   docker build --target fmtfix --output type=local,dest=. .
-# Independent of the lint gate so it runs even when sources are unformatted.
-# Only the formatted crates/ tree is exported (never target/ or build artifacts).
-FROM build AS fmt-format
-RUN cargo fmt --all
-
-FROM scratch AS fmtfix
-COPY --from=fmt-format /build/crates /crates
-
 # Formatting and static-diagnostics gate; ordinary runtime builds do not run it.
+# Apply formatting on the source checkout itself (cargo fmt), not via an export stage.
 FROM build AS lint
 RUN cargo fmt --all -- --check \
  && cargo clippy --workspace --all-targets --locked -- -D warnings

@@ -126,14 +126,23 @@ impl Shard {
             .try_reserve(operation.keys().len())
             .map_err(|_| failure("OOM could not reserve command effects"))?;
         let response = match operation {
-            Operation::Get(key) => Reply::Bulk(self.observe(key, now_ms, &mut effects).map(|entry| entry.value.clone())),
-            Operation::Set { key, value, condition, expiry } => {
+            Operation::Get(key) => Reply::Bulk(
+                self.observe(key, now_ms, &mut effects)
+                    .map(|entry| entry.value.clone()),
+            ),
+            Operation::Set {
+                key,
+                value,
+                condition,
+                expiry,
+            } => {
                 let old = self.observe(key, now_ms, &mut effects);
                 let deadline = match expiry {
                     Expiry::Clear => None,
                     Expiry::Keep => old.and_then(|entry| entry.expires_at_ms),
                     Expiry::AfterMilliseconds(duration) => Some(
-                        now_ms.checked_add(*duration)
+                        now_ms
+                            .checked_add(*duration)
                             .filter(|_| *duration > 0)
                             .ok_or_else(|| failure("ERR invalid expire time in 'set' command"))?,
                     ),
@@ -143,23 +152,46 @@ impl Shard {
                 {
                     Reply::Bulk(None)
                 } else {
-                    effects.insert(key.clone(), Some(Entry { value: value.clone(), expires_at_ms: deadline }));
+                    effects.insert(
+                        key.clone(),
+                        Some(Entry {
+                            value: value.clone(),
+                            expires_at_ms: deadline,
+                        }),
+                    );
                     Reply::ok()
                 }
             }
-            Operation::Increment { key, amount, subtract } => {
+            Operation::Increment {
+                key,
+                amount,
+                subtract,
+            } => {
                 // DECRBY's minimum argument cannot be represented as a
                 // positive signed increment; reject it without mutation.
                 if *subtract && *amount == i64::MIN {
                     return Err(failure("ERR increment or decrement would overflow"));
                 }
                 let old = self.observe(key, now_ms, &mut effects);
-                let current = old.map(|entry| integer(&entry.value))
-                    .transpose().map_err(|error| EngineError(error.0))?.unwrap_or(0);
-                let next = if *subtract { current.checked_sub(*amount) } else { current.checked_add(*amount) }
-                    .ok_or_else(|| failure("ERR increment or decrement would overflow"))?;
+                let current = old
+                    .map(|entry| integer(&entry.value))
+                    .transpose()
+                    .map_err(|error| EngineError(error.0))?
+                    .unwrap_or(0);
+                let next = if *subtract {
+                    current.checked_sub(*amount)
+                } else {
+                    current.checked_add(*amount)
+                }
+                .ok_or_else(|| failure("ERR increment or decrement would overflow"))?;
                 let expires_at_ms = old.and_then(|entry| entry.expires_at_ms);
-                effects.insert(key.clone(), Some(Entry { value: Bytes::from(next.to_string()), expires_at_ms }));
+                effects.insert(
+                    key.clone(),
+                    Some(Entry {
+                        value: Bytes::from(next.to_string()),
+                        expires_at_ms,
+                    }),
+                );
                 Reply::Integer(next)
             }
             Operation::Delete(keys) => {
@@ -175,14 +207,30 @@ impl Shard {
                 }
                 Reply::Integer(removed)
             }
-            Operation::Exists(keys) => Reply::Integer(keys.iter()
-                .filter(|key| self.observe(key, now_ms, &mut effects).is_some()).count() as i64),
-            Operation::MultiGet(keys) => Reply::Array(keys.iter().map(|key| {
-                Reply::Bulk(self.observe(key, now_ms, &mut effects).map(|entry| entry.value.clone()))
-            }).collect()),
+            Operation::Exists(keys) => Reply::Integer(
+                keys.iter()
+                    .filter(|key| self.observe(key, now_ms, &mut effects).is_some())
+                    .count() as i64,
+            ),
+            Operation::MultiGet(keys) => Reply::Array(
+                keys.iter()
+                    .map(|key| {
+                        Reply::Bulk(
+                            self.observe(key, now_ms, &mut effects)
+                                .map(|entry| entry.value.clone()),
+                        )
+                    })
+                    .collect(),
+            ),
             Operation::MultiSet(pairs) => {
                 for (key, value) in pairs {
-                    effects.insert(key.clone(), Some(Entry { value: value.clone(), expires_at_ms: None }));
+                    effects.insert(
+                        key.clone(),
+                        Some(Entry {
+                            value: value.clone(),
+                            expires_at_ms: None,
+                        }),
+                    );
                 }
                 Reply::ok()
             }
@@ -191,8 +239,9 @@ impl Shard {
                     if *milliseconds <= 0 {
                         effects.insert(key.clone(), None);
                     } else {
-                        let deadline = now_ms.checked_add(*milliseconds)
-                            .ok_or_else(|| failure("ERR invalid expire time in 'expire' command"))?;
+                        let deadline = now_ms.checked_add(*milliseconds).ok_or_else(|| {
+                            failure("ERR invalid expire time in 'expire' command")
+                        })?;
                         let mut entry = old.clone();
                         entry.expires_at_ms = Some(deadline);
                         effects.insert(key.clone(), Some(entry));
@@ -205,10 +254,20 @@ impl Shard {
             Operation::Ttl { key, milliseconds } => {
                 let ttl = match self.observe(key, now_ms, &mut effects) {
                     None => -2,
-                    Some(Entry { expires_at_ms: None, .. }) => -1,
-                    Some(Entry { expires_at_ms: Some(deadline), .. }) => {
+                    Some(Entry {
+                        expires_at_ms: None,
+                        ..
+                    }) => -1,
+                    Some(Entry {
+                        expires_at_ms: Some(deadline),
+                        ..
+                    }) => {
                         let remaining = deadline.saturating_sub(now_ms);
-                        if *milliseconds { remaining } else { remaining / 1000 + i64::from(remaining % 1000 >= 500) }
+                        if *milliseconds {
+                            remaining
+                        } else {
+                            remaining / 1000 + i64::from(remaining % 1000 >= 500)
+                        }
                     }
                 };
                 Reply::Integer(ttl)
@@ -249,7 +308,10 @@ impl Shard {
             }
         }
         self.payload_bytes = prepared.payload_after;
-        self.revision = self.revision.checked_add(1).expect("owner revision exhausted");
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .expect("owner revision exhausted");
         self.applied_commands = self.applied_commands.saturating_add(1);
         prepared.response
     }
@@ -259,13 +321,23 @@ impl Shard {
     pub fn expire_due(&mut self, now_ms: i64, budget: usize) -> usize {
         let mut removed = 0;
         while removed < budget {
-            let Some(key) = self.expiry.expired(now_ms) else { break };
+            let Some(key) = self.expiry.expired(now_ms) else {
+                break;
+            };
             self.expiry.remove(&key);
-            let entry = self.entries.remove(&key).expect("timer without live table entry");
-            assert!(entry.expires_at_ms.is_some_and(|deadline| deadline <= now_ms));
+            let entry = self
+                .entries
+                .remove(&key)
+                .expect("timer without live table entry");
+            assert!(entry
+                .expires_at_ms
+                .is_some_and(|deadline| deadline <= now_ms));
             self.payload_bytes -= key.len() + entry.value.len();
             self.expired_keys = self.expired_keys.saturating_add(1);
-            self.revision = self.revision.checked_add(1).expect("owner revision exhausted");
+            self.revision = self
+                .revision
+                .checked_add(1)
+                .expect("owner revision exhausted");
             removed += 1;
         }
         removed
@@ -278,7 +350,10 @@ impl Shard {
         effects: &mut HashMap<Bytes, Option<Entry>>,
     ) -> Option<&'a Entry> {
         let entry = self.entries.get(key)?;
-        if entry.expires_at_ms.is_some_and(|deadline| deadline <= now_ms) {
+        if entry
+            .expires_at_ms
+            .is_some_and(|deadline| deadline <= now_ms)
+        {
             effects.insert(key.clone(), None);
             None
         } else {
@@ -286,8 +361,15 @@ impl Shard {
         }
     }
 
-    fn preflight(&self, effects: HashMap<Bytes, Option<Entry>>, response: Reply) -> Result<Prepared, EngineError> {
-        if response.encoded_len().is_none_or(|bytes| bytes > self.limits.max_reply_bytes) {
+    fn preflight(
+        &self,
+        effects: HashMap<Bytes, Option<Entry>>,
+        response: Reply,
+    ) -> Result<Prepared, EngineError> {
+        if response
+            .encoded_len()
+            .is_none_or(|bytes| bytes > self.limits.max_reply_bytes)
+        {
             return Err(failure("ERR response exceeds configured limit"));
         }
         let mut keys = self.entries.len() as i128;
@@ -306,7 +388,12 @@ impl Shard {
             return Err(failure("OOM owner key or payload budget exhausted"));
         }
         let payload_after = usize::try_from(payload).expect("negative payload accounting");
-        Ok(Prepared { revision: self.revision, effects, payload_after, response })
+        Ok(Prepared {
+            revision: self.revision,
+            effects,
+            payload_after,
+            response,
+        })
     }
 }
 
@@ -320,23 +407,41 @@ mod tests {
     use crate::{parse, Command, ParseLimits};
 
     fn run(shard: &mut Shard, args: &[&str], now: i64) -> Reply {
-        let args: Vec<_> = args.iter().map(|s| Bytes::copy_from_slice(s.as_bytes())).collect();
+        let args: Vec<_> = args
+            .iter()
+            .map(|s| Bytes::copy_from_slice(s.as_bytes()))
+            .collect();
         let Command::Data(operation) = parse(&args, &ParseLimits::default()).unwrap() else {
             panic!("expected data command")
         };
-        shard.execute(&operation, now).unwrap_or_else(EngineError::reply)
+        shard
+            .execute(&operation, now)
+            .unwrap_or_else(EngineError::reply)
     }
 
     fn shard() -> Shard {
-        Shard::new(ShardLimits { max_keys: 100, ..ShardLimits::default() }).unwrap()
+        Shard::new(ShardLimits {
+            max_keys: 100,
+            ..ShardLimits::default()
+        })
+        .unwrap()
     }
 
     #[test]
     fn assignment_conditions_and_deadlines_are_atomic() {
         let mut shard = shard();
-        assert_eq!(run(&mut shard, &["SET", "k", "1", "NX", "PX", "1000"], 0), Reply::ok());
-        assert_eq!(run(&mut shard, &["SET", "k", "2", "NX"], 1), Reply::Bulk(None));
-        assert_eq!(run(&mut shard, &["SET", "k", "2", "XX", "KEEPTTL"], 10), Reply::ok());
+        assert_eq!(
+            run(&mut shard, &["SET", "k", "1", "NX", "PX", "1000"], 0),
+            Reply::ok()
+        );
+        assert_eq!(
+            run(&mut shard, &["SET", "k", "2", "NX"], 1),
+            Reply::Bulk(None)
+        );
+        assert_eq!(
+            run(&mut shard, &["SET", "k", "2", "XX", "KEEPTTL"], 10),
+            Reply::ok()
+        );
         assert_eq!(run(&mut shard, &["PTTL", "k"], 11), Reply::Integer(989));
         assert_eq!(run(&mut shard, &["GET", "k"], 999), Reply::bulk("2"));
         assert_eq!(run(&mut shard, &["GET", "k"], 1000), Reply::Bulk(None));
@@ -346,33 +451,75 @@ mod tests {
     #[test]
     fn counters_check_overflow_without_mutation_and_keep_expiry() {
         let mut shard = shard();
-        run(&mut shard, &["SET", "k", "9223372036854775807", "PX", "10000"], 0);
-        assert!(matches!(run(&mut shard, &["INCR", "k"], 1), Reply::Error(_)));
-        assert_eq!(run(&mut shard, &["GET", "k"], 2), Reply::bulk("9223372036854775807"));
-        assert_eq!(run(&mut shard, &["DECR", "k"], 2), Reply::Integer(i64::MAX - 1));
+        run(
+            &mut shard,
+            &["SET", "k", "9223372036854775807", "PX", "10000"],
+            0,
+        );
+        assert!(matches!(
+            run(&mut shard, &["INCR", "k"], 1),
+            Reply::Error(_)
+        ));
+        assert_eq!(
+            run(&mut shard, &["GET", "k"], 2),
+            Reply::bulk("9223372036854775807")
+        );
+        assert_eq!(
+            run(&mut shard, &["DECR", "k"], 2),
+            Reply::Integer(i64::MAX - 1)
+        );
         assert_eq!(run(&mut shard, &["PTTL", "k"], 2), Reply::Integer(9998));
         run(&mut shard, &["SET", "k", "-9223372036854775808"], 3);
-        assert!(matches!(run(&mut shard, &["DECRBY", "k", "-9223372036854775808"], 3), Reply::Error(_)));
-        assert_eq!(run(&mut shard, &["GET", "k"], 3), Reply::bulk("-9223372036854775808"));
+        assert!(matches!(
+            run(&mut shard, &["DECRBY", "k", "-9223372036854775808"], 3),
+            Reply::Error(_)
+        ));
+        assert_eq!(
+            run(&mut shard, &["GET", "k"], 3),
+            Reply::bulk("-9223372036854775808")
+        );
     }
 
     #[test]
     fn duplicate_multi_key_semantics_match_command_intent() {
         let mut shard = shard();
-        assert_eq!(run(&mut shard, &["MSET", "a", "1", "b", "2", "a", "3"], 0), Reply::ok());
-        assert_eq!(run(&mut shard, &["MGET", "a", "b", "a", "z"], 0), Reply::Array(vec![
-            Reply::bulk("3"), Reply::bulk("2"), Reply::bulk("3"), Reply::Bulk(None),
-        ]));
-        assert_eq!(run(&mut shard, &["EXISTS", "a", "a", "b"], 0), Reply::Integer(3));
-        assert_eq!(run(&mut shard, &["DEL", "a", "a", "b"], 0), Reply::Integer(2));
+        assert_eq!(
+            run(&mut shard, &["MSET", "a", "1", "b", "2", "a", "3"], 0),
+            Reply::ok()
+        );
+        assert_eq!(
+            run(&mut shard, &["MGET", "a", "b", "a", "z"], 0),
+            Reply::Array(vec![
+                Reply::bulk("3"),
+                Reply::bulk("2"),
+                Reply::bulk("3"),
+                Reply::Bulk(None),
+            ])
+        );
+        assert_eq!(
+            run(&mut shard, &["EXISTS", "a", "a", "b"], 0),
+            Reply::Integer(3)
+        );
+        assert_eq!(
+            run(&mut shard, &["DEL", "a", "a", "b"], 0),
+            Reply::Integer(2)
+        );
         assert_eq!(shard.stats().payload_bytes, 0);
     }
 
     #[test]
     fn failed_multi_assignment_has_no_partial_effects() {
-        let mut shard = Shard::new(ShardLimits { max_keys: 2, max_payload_bytes: 8, max_reply_bytes: 1024 }).unwrap();
+        let mut shard = Shard::new(ShardLimits {
+            max_keys: 2,
+            max_payload_bytes: 8,
+            max_reply_bytes: 1024,
+        })
+        .unwrap();
         run(&mut shard, &["SET", "a", "old"], 0);
-        assert!(matches!(run(&mut shard, &["MSET", "a", "new", "b", "toolarge"], 0), Reply::Error(_)));
+        assert!(matches!(
+            run(&mut shard, &["MSET", "a", "new", "b", "toolarge"], 0),
+            Reply::Error(_)
+        ));
         assert_eq!(run(&mut shard, &["GET", "a"], 0), Reply::bulk("old"));
         assert_eq!(run(&mut shard, &["GET", "b"], 0), Reply::Bulk(None));
         assert_eq!(shard.stats().payload_bytes, 4);
@@ -381,7 +528,8 @@ mod tests {
     #[test]
     fn dropping_preparation_rolls_back_every_requested_change() {
         let mut shard = shard();
-        let operation = Operation::MultiSet(vec![(Bytes::from_static(b"a"), Bytes::from_static(b"1"))]);
+        let operation =
+            Operation::MultiSet(vec![(Bytes::from_static(b"a"), Bytes::from_static(b"1"))]);
         let prepared = shard.prepare(&operation, 0).unwrap();
         assert_eq!(prepared.response(), &Reply::ok());
         drop(prepared);
@@ -425,7 +573,10 @@ mod tests {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             let amount = ((seed >> 32) % 201) as i64 - 100;
             expected += amount;
-            assert_eq!(run(&mut shard, &["INCRBY", "n", &amount.to_string()], 0), Reply::Integer(expected));
+            assert_eq!(
+                run(&mut shard, &["INCRBY", "n", &amount.to_string()], 0),
+                Reply::Integer(expected)
+            );
         }
     }
 }

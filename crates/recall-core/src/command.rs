@@ -98,7 +98,10 @@ impl Operation {
     pub fn payload_bytes(&self) -> usize {
         match self {
             Self::Set { key, value, .. } => key.len() + value.len(),
-            Self::MultiSet(pairs) => pairs.iter().map(|(key, value)| key.len() + value.len()).sum(),
+            Self::MultiSet(pairs) => pairs
+                .iter()
+                .map(|(key, value)| key.len() + value.len())
+                .sum(),
             _ => self.keys().iter().map(|key| key.len()).sum(),
         }
     }
@@ -216,7 +219,11 @@ pub fn parse(arguments: &[Bytes], limits: &ParseLimits) -> Result<Command, Comma
         _ => return Err(error("ERR syntax error")),
     };
     if let Command::Data(operation) = &command {
-        if operation.keys().iter().any(|key| key.len() > limits.max_key_bytes) {
+        if operation
+            .keys()
+            .iter()
+            .any(|key| key.len() > limits.max_key_bytes)
+        {
             return Err(error("ERR key exceeds configured limit"));
         }
         let value_too_large = match operation {
@@ -290,7 +297,8 @@ fn parse_hello(a: &[Bytes], limits: &ParseLimits) -> Result<Command, CommandErro
         if a[index].eq_ignore_ascii_case(b"auth") && auth.is_none() && index + 2 < a.len() {
             auth = Some((a[index + 1].clone(), a[index + 2].clone()));
             index += 3;
-        } else if a[index].eq_ignore_ascii_case(b"setname") && name.is_none() && index + 1 < a.len() {
+        } else if a[index].eq_ignore_ascii_case(b"setname") && name.is_none() && index + 1 < a.len()
+        {
             client_name(&a[index + 1], limits)?;
             name = Some(a[index + 1].clone());
             index += 2;
@@ -330,8 +338,12 @@ fn parse_client(a: &[Bytes], limits: &ParseLimits) -> Result<ClientCommand, Comm
 }
 
 fn client_name(value: &[u8], limits: &ParseLimits) -> Result<(), CommandError> {
-    if value.len() > limits.max_client_metadata_bytes || value.iter().any(|b| !(33..=126).contains(b)) {
-        return Err(error("ERR Client names cannot contain spaces, newlines or special characters"));
+    if value.len() > limits.max_client_metadata_bytes
+        || value.iter().any(|b| !(33..=126).contains(b))
+    {
+        return Err(error(
+            "ERR Client names cannot contain spaces, newlines or special characters",
+        ));
     }
     Ok(())
 }
@@ -448,7 +460,10 @@ mod tests {
     use super::*;
 
     fn args(values: &[&str]) -> Vec<Bytes> {
-        values.iter().map(|s| Bytes::copy_from_slice(s.as_bytes())).collect()
+        values
+            .iter()
+            .map(|s| Bytes::copy_from_slice(s.as_bytes()))
+            .collect()
     }
 
     #[test]
@@ -480,8 +495,15 @@ mod tests {
     #[test]
     fn command_names_and_options_are_case_insensitive() {
         assert!(matches!(
-            parse(&args(&["sEt", "k", "v", "nX", "pX", "10"]), &ParseLimits::default()).unwrap(),
-            Command::Data(Operation::Set { condition: Condition::IfAbsent, .. })
+            parse(
+                &args(&["sEt", "k", "v", "nX", "pX", "10"]),
+                &ParseLimits::default()
+            )
+            .unwrap(),
+            Command::Data(Operation::Set {
+                condition: Condition::IfAbsent,
+                ..
+            })
         ));
     }
 
@@ -491,4 +513,3 @@ mod tests {
         assert!(parse(&args(&["MULTI"]), &ParseLimits::default()).is_err());
     }
 }
-
