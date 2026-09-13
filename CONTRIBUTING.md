@@ -26,7 +26,9 @@ For an offline first pass, run [`python -B tools/static_check.py`](tools/static_
 5. Run tests with [`cargo test --workspace --locked`](Cargo.toml:1).
 6. Check the release build with [`cargo build --workspace --release --locked`](Cargo.toml:1).
 
-These match [the CI checks](.github/workflows/ci.yml). Run focused tests while developing, then the full relevant set before requesting review. If your environment cannot execute a check, record that limitation in the pull request; do not mark it as passed.
+[CI](.github/workflows/ci.yml) checks formatting and runs Clippy in independent jobs; it also retains Python repository checks, tests, and release builds. Unlike the local Clippy command above, CI omits `--locked`, allowing Cargo to create or update the lock in the runner checkout. See [GitHub Actions validation](docs/validation.md#github-actions-no-local-rust-or-docker) for CI setup, lock handling, and manual formatting corrections.
+
+Run focused tests while developing, then the full relevant set before requesting review. If your environment cannot execute a check, record that limitation in the pull request; do not mark it as passed.
 
 For a local instance, use [the run instructions](README.md) and [configuration/deployment guide](docs/deployment.md). The initial server is memory-only and loopback-only. Copy the tracked environment example rather than sharing a private file. Use synthetic data; never test against a production instance or expose a development instance publicly.
 

@@ -8,7 +8,7 @@ This guide defines repeatable checks and coverage expectations, not a record of 
 
 Use [the pinned toolchain](rust-toolchain.toml) in an authorized Linux workspace. Locked builds require [a generated dependency lock](Cargo.lock); if absent, use Cargo or [the Docker bootstrap](deployment.md#first-checkout-generate-the-dependency-lock-with-docker). No separate deployment-provenance archive is required.
 
-**Without a host Rust installation (recommended on the server):**
+**With Docker instead of a host Rust installation (recommended on the server):**
 
 1. If you intentionally want to normalize formatting first, run [`cargo fmt --all`](Cargo.toml:1) in a local toolchain workspace; otherwise skip to the Docker gate.
 2. Run the Docker lint gate: [`docker buildx build --target lint --no-cache-filter lint --progress=plain .`](Dockerfile:1). This runs rustfmt verification and Clippy with warnings as errors inside the pinned container.
@@ -17,9 +17,22 @@ Use [the pinned toolchain](rust-toolchain.toml) in an authorized Linux workspace
 
 **With a host toolchain instead:** run [`cargo fmt --all -- --check`](Cargo.toml:1), [`cargo clippy --workspace --all-targets --locked -- -D warnings`](Cargo.toml:1), [`cargo test --workspace --locked`](Cargo.toml:1), and [`cargo build --workspace --release --locked`](Cargo.toml:1) from the repository root.
 
-Resolve diagnostics rather than disabling them for a passing result. Rerun relevant tests after behavior-changing fixes. [Linux CI](.github/workflows/ci.yml) applies the same checks.
+Resolve diagnostics rather than disabling them for a passing result. Rerun relevant tests after behavior-changing fixes.
 
 An optional offline pass is [`python -B tools/static_check.py`](tools/static_check.py:1). Checker regressions use [`python -B -m unittest discover -s tools -p test_static_check.py -v`](tools/test_static_check.py:1). [The checker guide](static-checks.md) explains its limits.
+
+### GitHub Actions (no local Rust or Docker)
+
+[The Linux workflow](../.github/workflows/ci.yml) runs on pushes, pull requests, and manual dispatch. It installs the [pinned Rust toolchain](../rust-toolchain.toml), including rustfmt and clippy, on Ubuntu runners; no local Rust or Docker installation is required. Checks use the workspace's normal feature selection, without `--all-features`.
+
+- **Formatting:** `cargo fmt --all -- --check`.
+- **Clippy:** `cargo clippy --workspace --all-targets -- -D warnings`.
+
+These jobs depend on neither each other nor the Python checks, so a failure in one does not suppress the other. Python repository checks and their regression tests remain complementary coverage, not a replacement for Rust checks. The test/release-build job waits for Python checks, generates `Cargo.lock` if absent, then runs the locked test and release-build commands above.
+
+CI Clippy omits `--locked`; Cargo may create or update a lock in that job's checkout. Without a committed lock, dependency resolution can vary between jobs and runs. Generated locks and build outputs stay on disposable runners. The workflow grants only `contents: read` and performs no auto-fixes, commits, or pushes.
+
+To inspect failures, open a pull request's **Checks** tab or **Actions > Rust correctness gates > run > Formatting / Clippy**. In **Formatting > Check formatting**, use each rustfmt diff's file path and line reference to apply the shown changes manually in your editor; do not copy the `+`/`-` markers. Review, commit, and push corrections yourself so CI checks them again. A configured workflow alone is not evidence that its checks have passed.
 
 ## 2. Automated coverage
 

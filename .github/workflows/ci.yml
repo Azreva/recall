@@ -22,24 +22,49 @@ jobs:
       - name: Read-only repository checks
         run: python -B tools/static_check.py
 
+  # Independent jobs report both results even when one check fails.
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain and components
+        # rustup reads the version and profile from rust-toolchain.toml.
+        run: |
+          rustup show active-toolchain
+          rustup component add rustfmt clippy
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain and components
+        run: |
+          rustup show active-toolchain
+          rustup component add rustfmt clippy
+      - name: Check workspace and all targets
+        # When absent, Cargo.lock is generated only in the runner checkout.
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
   check:
     name: Linux Tier 1 Rust checks
     needs: static
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install pinned toolchain
-        run: rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
+      - name: Install pinned toolchain and components
+        run: |
+          rustup show active-toolchain
+          rustup component add rustfmt clippy
       - name: Prepare dependency lock when absent
         shell: bash
         run: |
           if [ ! -f Cargo.lock ]; then
             cargo generate-lockfile
           fi
-      - name: Formatting
-        run: cargo fmt --all -- --check
-      - name: Static diagnostics
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Unit and integration tests
         run: cargo test --workspace --locked
       - name: Release build
